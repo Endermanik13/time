@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Батутные коты</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, #2a2a4a 0%, #1a1a2e 100%);
+            overflow: hidden;
+            font-family: 'Press Start 2P', cursive;
+            color: #fff;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .menu {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+            z-index: 10;
+            backdrop-filter: blur(5px);
+        }
+        .menu label {
+            font-size: 14px;
+            text-shadow: 2px 2px 5px #000;
+            margin-bottom: 15px;
+            display: block;
+        }
+        .menu input, .menu button {
+            display: block;
+            margin-bottom: 15px;
+            padding: 8px;
+            border: none;
+            border-radius: 8px;
+            font-family: 'Press Start 2P', cursive;
+            background: #fff;
+            color: #222;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .menu input:hover, .menu button:hover {
+            transform: scale(1.05);
+        }
+        .menu input[type="file"] { padding: 0; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div class="menu">
+        <label>Размер: <input type="number" id="size" value="100" min="50" max="300"></label>
+        <label>Количество: <input type="number" id="count" value="1" min="1" max="20"></label>
+        <input type="file" id="upload" accept="image/*">
+    </div>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const GRAVITY = 0.3;
+        const FRICTION = 0.98;
+        const BOUNCE = 0.85;
+        const objects = [];
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        document.getElementById('upload').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const url = URL.createObjectURL(file);
+                const count = Math.min(20, +document.getElementById('count').value);
+                for (let i = 0; i < count; i++) spawnObject(url);
+            }
+        });
+
+        function getImageData(img) {
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = img.width;
+            tempCanvas.height = img.height;
+            tempCtx.drawImage(img, 0, 0);
+            return tempCtx.getImageData(0, 0, img.width, img.height);
+        }
+
+        function spawnObject(src) {
+            const img = new Image();
+            img.src = src;
+            img.onload = () => {
+                const size = Math.max(50, Math.min(300, +document.getElementById('size').value));
+                const scale = size / img.width;
+                const pixelData = getImageData(img);
+
+                const obj = {
+                    img,
+                    x: Math.random() * (canvas.width - size),
+                    y: 0,
+                    vx: (Math.random() - 0.5) * 5,
+                    vy: Math.random() * 2,
+                    angle: 0,
+                    va: 0,
+                    width: size,
+                    height: img.height * scale,
+                    scale: scale,
+                    pixelData,
+                    isDragging: false,
+                    lastX: 0,
+                    lastY: 0,
+                    dragTime: 0,
+                    lastTime: 0
+                };
+                objects.push(obj);
+
+                canvas.addEventListener('mousedown', (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    const mx = e.clientX - rect.left;
+                    const my = e.clientY - rect.top;
+                    if (isPointInObject(mx, my, obj)) {
+                        obj.isDragging = true;
+                        obj.lastX = obj.x;
+                        obj.lastY = obj.y;
+                        obj.lastTime = performance.now();
+                        obj.vx = 0;
+                        obj.vy = 0;
+                        obj.va = 0;
+                    }
+                });
+
+                canvas.addEventListener('mousemove', (e) => {
+                    if (obj.isDragging) {
+                        const rect = canvas.getBoundingClientRect();
+                        obj.x = e.clientX - rect.left - obj.width / 2;
+                        obj.y = e.clientY - rect.top - obj.height / 2;
+                        obj.dragTime = performance.now() - obj.lastTime;
+                    }
+                });
+
+                canvas.addEventListener('mouseup', () => {
+                    if (obj.isDragging) {
+                        obj.isDragging = false;
+                        const deltaX = obj.x - obj.lastX;
+                        const deltaY = obj.y - obj.lastY;
+                        obj.vx = deltaX / (obj.dragTime || 1) * 50;
+                        obj.vy = deltaY / (obj.dragTime || 1) * 50;
+                        obj.va = deltaX / (obj.dragTime || 1) * 0.5; // Вращение от броска
+                    }
+                });
+            };
+        }
+
+        function isPointInObject(x, y, obj) {
+            const dx = (x - obj.x) / obj.scale;
+            const dy = (y - obj.y) / obj.scale;
+            const angleRad = -obj.angle * Math.PI / 180;
+            const rotatedX = dx * Math.cos(angleRad) + dy * Math.sin(angleRad);
+            const rotatedY = -dx * Math.sin(angleRad) + dy * Math.cos(angleRad);
+            const px = Math.floor(rotatedX);
+            const py = Math.floor(rotatedY);
+            if (px >= 0 && px < obj.img.width && py >= 0 && py < obj.img.height) {
+                const index = (py * obj.img.width + px) * 4 + 3; // Альфа-канал
+                return obj.pixelData.data[index] > 0; // Прозрачность
+            }
+            return false;
+        }
+
+        function checkCollision(obj) {
+            if (obj.x < 0) {
+                obj.x = 0;
+                obj.vx = -obj.vx * BOUNCE;
+                obj.va += obj.vx * 0.01; // Вращение от удара
+            } else if (obj.x + obj.width > canvas.width) {
+                obj.x = canvas.width - obj.width;
+                obj.vx = -obj.vx * BOUNCE;
+                obj.va += obj.vx * 0.01;
+            }
+            if (obj.y + obj.height > canvas.height) {
+                obj.y = canvas.height - obj.height;
+                obj.vy = -obj.vy * BOUNCE;
+                obj.vx *= 0.95;
+                obj.va += obj.vy * 0.01; // Вращение от удара о пол
+                if (Math.abs(obj.vy) < 0.1) obj.vy = 0;
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            objects.forEach(obj => {
+                if (!obj.isDragging) {
+                    obj.vy += GRAVITY;
+                    obj.vx *= FRICTION;
+                    obj.vy *= FRICTION;
+                    obj.va *= FRICTION;
+                    obj.x += obj.vx;
+                    obj.y += obj.vy;
+                    obj.angle += obj.va;
+                    checkCollision(obj);
+                }
+
+                ctx.save();
+                ctx.translate(obj.x + obj.width / 2, obj.y + obj.height / 2);
+                ctx.rotate(obj.angle * Math.PI / 180);
+                ctx.drawImage(obj.img, -obj.width / 2, -obj.height / 2, obj.width, obj.height);
+                ctx.restore();
+            });
+            requestAnimationFrame(animate);
+        }
+        animate();
+    </script>
+</body>
+</html>
