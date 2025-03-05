@@ -53,6 +53,10 @@
             transform: scale(1.05);
         }
         .menu input[type="file"] { padding: 0; }
+        .menu button {
+            background: #ff4444;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -61,6 +65,7 @@
         <label>Размер: <input type="number" id="size" value="100" min="50" max="300"></label>
         <label>Количество: <input type="number" id="count" value="1" min="1" max="20"></label>
         <input type="file" id="upload" accept="image/*">
+        <button id="shake">Встряхнуть всё!</button>
     </div>
     <script>
         const canvas = document.getElementById('canvas');
@@ -68,10 +73,12 @@
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
-        const GRAVITY = 0.3;
-        const FRICTION = 0.98;
-        const BOUNCE = 0.85;
+        const GRAVITY = 0.35;
+        const FRICTION_AIR = 0.99;
+        const FRICTION_GROUND = 0.95;
+        const BOUNCE = 0.9;
         const objects = [];
+        let draggedObject = null;
 
         window.addEventListener('resize', () => {
             canvas.width = window.innerWidth;
@@ -85,6 +92,14 @@
                 const count = Math.min(20, +document.getElementById('count').value);
                 for (let i = 0; i < count; i++) spawnObject(url);
             }
+        });
+
+        document.getElementById('shake').addEventListener('click', () => {
+            objects.forEach(obj => {
+                obj.vy = -(Math.random() * 15 + 10);
+                obj.vx += (Math.random() - 0.5) * 10;
+                obj.va += (Math.random() - 0.5) * 2;
+            });
         });
 
         function getImageData(img) {
@@ -120,44 +135,10 @@
                     lastX: 0,
                     lastY: 0,
                     dragTime: 0,
-                    lastTime: 0
+                    lastTime: 0,
+                    mass: size / 100
                 };
                 objects.push(obj);
-
-                canvas.addEventListener('mousedown', (e) => {
-                    const rect = canvas.getBoundingClientRect();
-                    const mx = e.clientX - rect.left;
-                    const my = e.clientY - rect.top;
-                    if (isPointInObject(mx, my, obj)) {
-                        obj.isDragging = true;
-                        obj.lastX = obj.x;
-                        obj.lastY = obj.y;
-                        obj.lastTime = performance.now();
-                        obj.vx = 0;
-                        obj.vy = 0;
-                        obj.va = 0;
-                    }
-                });
-
-                canvas.addEventListener('mousemove', (e) => {
-                    if (obj.isDragging) {
-                        const rect = canvas.getBoundingClientRect();
-                        obj.x = e.clientX - rect.left - obj.width / 2;
-                        obj.y = e.clientY - rect.top - obj.height / 2;
-                        obj.dragTime = performance.now() - obj.lastTime;
-                    }
-                });
-
-                canvas.addEventListener('mouseup', () => {
-                    if (obj.isDragging) {
-                        obj.isDragging = false;
-                        const deltaX = obj.x - obj.lastX;
-                        const deltaY = obj.y - obj.lastY;
-                        obj.vx = deltaX / (obj.dragTime || 1) * 50;
-                        obj.vy = deltaY / (obj.dragTime || 1) * 50;
-                        obj.va = deltaX / (obj.dragTime || 1) * 0.5; // Вращение от броска
-                    }
-                });
             };
         }
 
@@ -170,28 +151,74 @@
             const px = Math.floor(rotatedX);
             const py = Math.floor(rotatedY);
             if (px >= 0 && px < obj.img.width && py >= 0 && py < obj.img.height) {
-                const index = (py * obj.img.width + px) * 4 + 3; // Альфа-канал
-                return obj.pixelData.data[index] > 0; // Прозрачность
+                const index = (py * obj.img.width + px) * 4 + 3;
+                return obj.pixelData.data[index] > 0;
             }
             return false;
         }
 
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            for (let i = objects.length - 1; i >= 0; i--) {
+                const obj = objects[i];
+                if (isPointInObject(mx, my, obj)) {
+                    draggedObject = obj;
+                    obj.isDragging = true;
+                    obj.lastX = obj.x;
+                    obj.lastY = obj.y;
+                    obj.lastTime = performance.now();
+                    obj.vx = 0;
+                    obj.vy = 0;
+                    obj.va = 0;
+                    break;
+                }
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (draggedObject) {
+                const rect = canvas.getBoundingClientRect();
+                draggedObject.x = e.clientX - rect.left - draggedObject.width / 2;
+                draggedObject.y = e.clientY - rect.top - draggedObject.height / 2;
+                draggedObject.dragTime = performance.now() - draggedObject.lastTime;
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            if (draggedObject) {
+                const deltaX = draggedObject.x - draggedObject.lastX;
+                const deltaY = draggedObject.y - draggedObject.lastY;
+                draggedObject.vx = deltaX / (draggedObject.dragTime || 1) * 60;
+                draggedObject.vy = deltaY / (draggedObject.dragTime || 1) * 60;
+                draggedObject.va = deltaX / (draggedObject.dragTime || 1) * 0.8;
+                draggedObject.isDragging = false;
+                draggedObject = null;
+            }
+        });
+
         function checkCollision(obj) {
+            const speed = Math.sqrt(obj.vx * obj.vx + obj.vy * obj.vy);
+            const angleImpact = Math.atan2(obj.vy, obj.vx);
+
             if (obj.x < 0) {
                 obj.x = 0;
                 obj.vx = -obj.vx * BOUNCE;
-                obj.va += obj.vx * 0.01; // Вращение от удара
+                obj.va += speed * 0.02 * Math.cos(angleImpact);
             } else if (obj.x + obj.width > canvas.width) {
                 obj.x = canvas.width - obj.width;
                 obj.vx = -obj.vx * BOUNCE;
-                obj.va += obj.vx * 0.01;
+                obj.va += speed * 0.02 * Math.cos(angleImpact);
             }
+
             if (obj.y + obj.height > canvas.height) {
                 obj.y = canvas.height - obj.height;
-                obj.vy = -obj.vy * BOUNCE;
-                obj.vx *= 0.95;
-                obj.va += obj.vy * 0.01; // Вращение от удара о пол
-                if (Math.abs(obj.vy) < 0.1) obj.vy = 0;
+                const bounceFactor = BOUNCE * (1 + Math.abs(Math.sin(angleImpact)) * 0.2);
+                obj.vy = -obj.vy * bounceFactor;
+                obj.vx *= FRICTION_GROUND;
+                obj.va += speed * 0.03 * Math.sin(angleImpact);
+                if (Math.abs(obj.vy) < 0.2) obj.vy = 0;
             }
         }
 
@@ -199,10 +226,10 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             objects.forEach(obj => {
                 if (!obj.isDragging) {
-                    obj.vy += GRAVITY;
-                    obj.vx *= FRICTION;
-                    obj.vy *= FRICTION;
-                    obj.va *= FRICTION;
+                    obj.vy += GRAVITY * obj.mass;
+                    obj.vx *= FRICTION_AIR;
+                    obj.vy *= FRICTION_AIR;
+                    obj.va *= FRICTION_AIR;
                     obj.x += obj.vx;
                     obj.y += obj.vy;
                     obj.angle += obj.va;
